@@ -108,7 +108,7 @@ def main():
     # Capturing video
     capture = cv2.VideoCapture(args["video"])
 
-    object_counter = 1
+    object_counter = 0
 
     # List all contours
     all_contours = []
