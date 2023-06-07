@@ -7,7 +7,7 @@ from iou import IoU
 
 PATH_TO_YOLO = "yolo-coco-model"
 CONFIDENCE = 0.7
-THRESHOLD = 0.6
+THRESHOLD = 0.3
 
 
 class YOLO:
@@ -38,9 +38,13 @@ class YOLO:
 
         self.net = net
         self.ln = ln
-        self.counter = 1
+        self.counter = 0
+        # List of boxes that contains: [box, age of box, box number, confidence, classID]
+        self.real_boxes = []
 
-    def forward(self, frame: np.ndarray) -> None:
+    def forward(
+        self, frame: np.ndarray
+    ) -> tuple[list[tuple[int, int, int, int]], list[float], list[int]]:
         """
         feed an frame to YOLO network, filter weak boxes,
         return boxes, confidence, class labels
@@ -57,9 +61,9 @@ class YOLO:
 
         # initialize our lists of detected bounding boxes, confidences, and
         # class IDs, respectively
-        boxes = []
-        confidences = []
-        classIDs = []
+        new_boxes = []
+        new_confidences = []
+        new_classIDs = []
         # objects_nums = []
 
         # loop over each of the layer outputs
@@ -87,74 +91,83 @@ class YOLO:
 
                     # update our list of bounding box coordinates, confidences,
                     # and class IDs
-                    boxes.append([x, y, int(width), int(height)])
-                    confidences.append(float(confidence))
-                    classIDs.append(classID)
-                    # objects_nums.append(self.counter)
+                    new_boxes.append((x, y, int(width), int(height)))
+                    new_confidences.append(float(confidence))
+                    new_classIDs.append(classID)
 
-        self.boxes = np.array(boxes)
-        self.confidences = np.array(confidences)
-        self.classIDs = np.array(classIDs)
-        # self.objects_nums = np.array(objects_nums)
+        return new_boxes, new_confidences, new_classIDs
 
-    def non_max_supression(self) -> None:
-        """
-        perform non-maximum supression over boxes
-        """
-        idxs = np.argsort(-self.confidences)
-        confidences = self.confidences[idxs]
-        boxes = self.boxes[idxs]
-        classIDs = self.classIDs[idxs]
-        # objects_nums = self.objects_nums[idxs]
-        objects_nums = [0] * len(boxes)
-        counter = 1
+    def filter_boxes(
+        self,
+        new_boxes: list[tuple[int, int, int, int]],
+        new_confidences: list[float],
+        new_classIDs: list[int],
+    ) -> None:
+        # Filter detected objects
 
-        for i in range(len(boxes)):
-            x, y, w, h = boxes[i][0], boxes[i][1], boxes[i][2], boxes[i][3]
-            box1 = (x, y, x + w, y + h)
-            for j in range(i + 1, len(boxes)):
-                if classIDs[i] == classIDs[j]:
-                    # если у них одинаковые классы, вычисляем IoU между ними
-                    x, y, w, h = boxes[j][0], boxes[j][1], boxes[j][2], boxes[j][3]
-                    box2 = (x, y, x + w, y + h)
-                    if IoU(box1, box2) > self.THRESHOLD:
-                        confidences[j] = 0
-                        if not confidences[i] and not objects_nums[i]:
-                            objects_nums[i] = counter
-                            counter += 1
-        for i in range(len(objects_nums)):
-            if objects_nums[i] == 0:
-                objects_nums[i] = counter
-                counter += 1
-        idxs = np.where(confidences > 0)
-        self.boxes = boxes[idxs]
-        self.confidences = confidences[idxs]
-        self.classIDs = classIDs[idxs]
-        self.objects_nums = np.array(objects_nums)[idxs]
-        self.counter = len(boxes)
+        new_confidences = np.array(new_confidences)
+        idxs = np.argsort(-new_confidences)
+        new_confidences = new_confidences[idxs]
+        new_boxes = np.array(new_boxes)[idxs]
+        new_classIDs = np.array(new_classIDs)[idxs]
+
+        for j, box in enumerate(new_boxes):
+            x, y, w, h = box[0], box[1], box[2], box[3]
+            cur_box = (x, y, x + w, y + h)
+            cur_conf = new_confidences[j]
+            cur_classID = new_classIDs[j]
+            updated = False
+            for i, (
+                exist_box,
+                age,
+                exist_counter,
+                exist_conf,
+                exist_classID,
+            ) in enumerate(self.real_boxes):
+                x, y, w, h = exist_box[0], exist_box[1], exist_box[2], exist_box[3]
+                exist_box = (x, y, x + w, y + h)
+                # If objects have the same class, compute their IoU
+                if cur_classID == exist_classID:
+                    iou_score = IoU(cur_box, exist_box)
+                    if iou_score > THRESHOLD:
+                        self.real_boxes[i] = [
+                            box,
+                            0,
+                            exist_counter,
+                            cur_conf,
+                            cur_classID,
+                        ]
+                        updated = True
+                        break
+            if not updated:
+                self.counter += 1
+                self.real_boxes.append([box, 0, self.counter, cur_conf, cur_classID])
+
+        self.real_boxes = [box for box in self.real_boxes if box[1] < 3]
 
     def detect(self, frame: np.ndarray) -> np.ndarray:
         """
         detect objects, supress non maximums, draw boxes
         return frame with boxes
         """
-        self.forward(frame)
-        self.non_max_supression()
+        new_boxes, new_confidences, new_classIDs = self.forward(frame)
+        self.filter_boxes(new_boxes, new_confidences, new_classIDs)
 
         # draw boxes
-        for i in range(len(self.boxes)):
-            label = self.LABELS[self.classIDs[i]]
-
+        for i in range(len(self.real_boxes)):
+            cur_object = self.real_boxes[i]
+            self.real_boxes[i][1] += 1
+            label = self.LABELS[cur_object[4]]
+            cur_box = cur_object[0]
             # extract the bounding box coordinates
-            (x, y) = (self.boxes[i][0], self.boxes[i][1])
-            (w, h) = (self.boxes[i][2], self.boxes[i][3])
-
-            object_num = self.objects_nums[i]
+            (x, y) = (cur_box[0], cur_box[1])
+            (w, h) = (cur_box[2], cur_box[3])
+            object_num = self.real_boxes[i][2]
 
             # draw a bounding box rectangle and label on the image
-            color = [int(c) for c in self.COLORS[self.classIDs[i]]]
+            color = [int(c) for c in self.COLORS[cur_object[4]]]
             cv2.rectangle(frame, (x, y), (x + w, y - h), color, 2)
-            text = f"#{object_num}, {label}: {self.confidences[i]:.4f}"
+            text = f"#{object_num}, {label}: {cur_object[3]:.4f}"
             cv2.putText(
                 frame, text, (x, y - h - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2
             )
