@@ -6,6 +6,7 @@ import numpy as np
 import argparse
 from iou import IoU
 
+
 def filter_diffrence(frame_1: np.ndarray, frame_2: np.ndarray) -> np.ndarray:
     # Find difference between two frames to detect changes
     diff = cv2.absdiff(frame_1, frame_2)
@@ -26,10 +27,16 @@ def filter_diffrence(frame_1: np.ndarray, frame_2: np.ndarray) -> np.ndarray:
     return thresh_bin
 
 
-def get_contours(filtered_diff: np.ndarray, all_contours: list[np.ndarray], object_counter: int, min_area: int) -> tuple[list, int]:
+def get_contours(
+    filtered_diff: np.ndarray,
+    all_contours: list[np.ndarray],
+    object_counter: int,
+    min_area: int,
+) -> tuple[list, int]:
     # Find contours
     new_contours, hierarchy = cv2.findContours(
-        filtered_diff, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        filtered_diff, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
 
     # Filter detected contours
     for contour in new_contours:
@@ -54,21 +61,21 @@ def get_contours(filtered_diff: np.ndarray, all_contours: list[np.ndarray], obje
             # If distance between current contour and one of saved contours
             # is smaller than some threshold, then we assume that contours belong to the same object.
             # Hence, old contour may be ignored, thus its second argument is False
-            dist = np.sqrt((exist_cX - cX)**2 + (exist_cY - cY)**2)
+            dist = np.sqrt((exist_cX - cX) ** 2 + (exist_cY - cY) ** 2)
             if dist < 100:
                 x1, y1, w1, h1 = cv2.boundingRect(exist_con)
                 x2, y2, w2, h2 = cv2.boundingRect(contour)
 
-                box1 = [x1, y1, x1+w1, y1+w1]
-                box2 = [x2, y2, x2+w2, y2+w2]
+                box1 = [x1, y1, x1 + w1, y1 + w1]
+                box2 = [x2, y2, x2 + w2, y2 + w2]
                 iou_score = IoU(box1, box2)
                 if iou_score > 0.3:
                     all_contours[i] = [contour, 0, exist_counter]
                     updated = True
                     break
         if not updated:
-          object_counter += 1
-          all_contours.append([contour, 0, object_counter])
+            object_counter += 1
+            all_contours.append([contour, 0, object_counter])
 
     # Keep only youngest contours
     upd_contours = [upd_cnt for upd_cnt in all_contours if upd_cnt[1] < 3]
@@ -86,18 +93,30 @@ def draw_bboxes(frame: np.ndarray, contours: list[np.ndarray]) -> np.ndarray:
         # Find parameters of appropriate bounding box
         x, y, w, h = cv2.boundingRect(real_cont)
         # Draw rectangle around detected object
-        cv2.rectangle(frame_copy, (x, y), (x+w, y+h), (0, 255, 0), 2)
-        cv2.putText(frame_copy, f"Object #{contours[i][2]}", (
-            x+w, y+h), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1, 2)
-    
+        cv2.rectangle(frame_copy, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        cv2.putText(
+            frame_copy,
+            f"Object #{contours[i][2]}",
+            (x, y - 5),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 255, 0),
+            2,
+            2,
+        )
+
     return frame_copy
+
 
 def main():
     # Parse arguments
     ap = argparse.ArgumentParser()
-    ap.add_argument("-v", "--video", default="min_trim.mkv", help="path to the video file")
-    ap.add_argument("-a", "--min-area", type=int,
-                    default=5000, help="minimum area size")
+    ap.add_argument(
+        "-v", "--video", default="min_trim.mkv", help="path to the video file"
+    )
+    ap.add_argument(
+        "-a", "--min-area", type=int, default=5000, help="minimum area size"
+    )
     args = vars(ap.parse_args())
 
     min_area = args["min_area"]
@@ -116,7 +135,9 @@ def main():
 
         filtered_diff = filter_diffrence(frame_1, frame_2)
 
-        all_contours, object_counter = get_contours(filtered_diff, all_contours, object_counter, min_area)
+        all_contours, object_counter = get_contours(
+            filtered_diff, all_contours, object_counter, min_area
+        )
 
         frame_display = draw_bboxes(frame_1, all_contours)
 
@@ -124,6 +145,7 @@ def main():
         cv2.imshow("Detecting Motion...", frame_display)
         if cv2.waitKey(100) & 0xFF == ord("q"):
             break
+
 
 if __name__ == "__main__":
     main()
