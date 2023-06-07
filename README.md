@@ -19,3 +19,9 @@ or
 python yolo_impl.py
 ```
 If you want to run the code for your own video, add `--video "path/to/video.mkv"` in the end of a line
+
+## Results
+- Detection result using OpenCV library:
+![Opencv_result](images/opencv_result.png)
+- Detection result unsing YOLO:
+![YOLO_result](images/yolo_result.png)
