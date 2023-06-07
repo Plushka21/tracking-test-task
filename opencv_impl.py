@@ -45,34 +45,19 @@ def get_contours(
         if new_area < min_area:
             continue
 
-        # Otherwise find its center
-        M = cv2.moments(contour)
-        cX = int(M["m10"] / M["m00"])
-        cY = int(M["m01"] / M["m00"])
-
         updated = False
         # Compare the current contour with saved contours
         for i, (exist_con, age, exist_counter) in enumerate(all_contours):
-            # Take center of saved contour
-            M = cv2.moments(exist_con)
-            exist_cX = int(M["m10"] / M["m00"])
-            exist_cY = int(M["m01"] / M["m00"])
+            x1, y1, w1, h1 = cv2.boundingRect(exist_con)
+            x2, y2, w2, h2 = cv2.boundingRect(contour)
 
-            # If distance between current contour and one of saved contours
-            # is smaller than some threshold, then we assume that contours belong to the same object.
-            # Hence, old contour may be ignored, thus its second argument is False
-            dist = np.sqrt((exist_cX - cX) ** 2 + (exist_cY - cY) ** 2)
-            if dist < 100:
-                x1, y1, w1, h1 = cv2.boundingRect(exist_con)
-                x2, y2, w2, h2 = cv2.boundingRect(contour)
-
-                box1 = [x1, y1, x1 + w1, y1 + w1]
-                box2 = [x2, y2, x2 + w2, y2 + w2]
-                iou_score = IoU(box1, box2)
-                if iou_score > 0.3:
-                    all_contours[i] = [contour, 0, exist_counter]
-                    updated = True
-                    break
+            box1 = [x1, y1, x1 + w1, y1 + h1]
+            box2 = [x2, y2, x2 + w2, y2 + h2]
+            iou_score = IoU(box1, box2)
+            if iou_score > 0.3:
+                all_contours[i] = [contour, 0, exist_counter]
+                updated = True
+                break
         if not updated:
             object_counter += 1
             all_contours.append([contour, 0, object_counter])
